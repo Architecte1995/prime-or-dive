@@ -1,0 +1,390 @@
+<!-- 
+  Prime or Dive v6
+  Copyright (c) 2026 Architecte1995 & Kimi K 2.5 Thinking
+  Concept: Factorization clicking game with prime-number death mechanic
+  Licensed under MIT with Attribution
+  Repository: https://github.com/architecte1995/prime-or-dive
+-->
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Prime or Dive</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        body {
+            background: #000;
+            color: #0f0;
+            font-family: 'Courier New', Courier, monospace;
+            overflow: hidden;
+            height: 100vh;
+            width: 100vw;
+            position: relative;
+            padding-top: 70px;
+        }
+
+        #title {
+            position: fixed;
+            top: 12px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 12px;
+            letter-spacing: 4px;
+            opacity: 0.5;
+            text-transform: uppercase;
+            z-index: 100;
+            text-shadow: 0 0 8px #0f0;
+            pointer-events: none;
+            white-space: nowrap;
+        }
+
+        #pool {
+            position: fixed;
+            top: 32px;
+            left: 18px;
+            font-size: 22px;
+            font-weight: bold;
+            z-index: 100;
+            text-shadow: 0 0 15px #0f0;
+            pointer-events: none;
+            transition: color 0.2s, text-shadow 0.2s;
+        }
+
+        #pool.negative {
+            color: #f00;
+            text-shadow: 0 0 15px #f00;
+        }
+
+        #floor {
+            position: fixed;
+            bottom: 40px;
+            left: 0;
+            width: 100%;
+            height: 1px;
+            background: #0f0;
+            opacity: 0.4;
+            box-shadow: 0 0 8px #0f0;
+            pointer-events: none;
+            z-index: 50;
+        }
+
+        .falling-number {
+            position: absolute;
+            font-weight: bold;
+            cursor: pointer;
+            user-select: none;
+            text-shadow: 0 0 25px #0f0;
+            line-height: 1;
+            z-index: 10;
+            text-align: left;
+            white-space: nowrap;
+            transition: color 0.2s, text-shadow 0.2s;
+        }
+
+        .falling-number:active {
+            opacity: 0.6;
+        }
+
+        .falling-number.fast {
+            text-shadow: 0 0 20px #ff0;
+            color: #ff0;
+        }
+
+        .falling-number.big {
+            text-align: left;
+            transform: none;
+        }
+
+        #message {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 18px;
+            text-align: center;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.6s;
+            line-height: 1.6;
+            z-index: 200;
+            text-shadow: 0 0 20px #0f0;
+            width: 80%;
+        }
+
+        #message.show {
+            opacity: 1;
+        }
+
+        #message.death {
+            color: #f00;
+            text-shadow: 0 0 30px #f00;
+        }
+
+        .particle {
+            position: absolute;
+            width: 3px;
+            height: 3px;
+            background: #0f0;
+            border-radius: 50%;
+            pointer-events: none;
+            box-shadow: 0 0 6px #0f0;
+            z-index: 5;
+        }
+    </style>
+</head>
+<body>
+    <div id="title">Prime or Dive</div>
+    <div id="pool">Pool: <span id="value">0</span></div>
+    <div id="floor"></div>
+    <div id="message"></div>
+
+    <script>
+        let pool = 0;
+        let initialPool = 0; // Stockage du nombre initial
+        const activeNumbers = new Map();
+        let gameEnded = false;
+        let nextId = 0;
+        const MAX_VALUE = 77773337;
+        const MIN_VALUE = 37;
+
+        function isPrime(n) {
+            if (n < 2) return false;
+            if (n === 2) return true;
+            if (n % 2 === 0) return false;
+            for (let i = 3; i * i <= n; i += 2) {
+                if (n % i === 0) return false;
+            }
+            return true;
+        }
+
+        function getRandomDivisor(n) {
+            const divs = [];
+            for (let i = 2; i * i <= n; i++) {
+                if (n % i === 0) {
+                    divs.push(i);
+                    if (i !== n / i) divs.push(n / i);
+                }
+            }
+            return divs.length ? divs[Math.floor(Math.random() * divs.length)] : null;
+        }
+
+        function generateComposite() {
+            let n;
+            do {
+                n = Math.floor(Math.random() * (MAX_VALUE - MIN_VALUE + 1)) + MIN_VALUE;
+            } while (isPrime(n));
+            return n;
+        }
+
+        function getSpeedLevel(value) {
+            if (value <= 20) return 5;
+            const roll = Math.random();
+            if (roll < 0.20) return 1;
+            if (roll < 0.40) return 2;
+            if (roll < 0.60) return 3;
+            if (roll < 0.80) return 4;
+            return 5;
+        }
+
+        function getSpeedFromLevel(level) {
+            switch(level) {
+                case 1: return 0.15 + Math.random() * 0.15;
+                case 2: return 0.40 + Math.random() * 0.30;
+                case 3: return 0.90 + Math.random() * 0.40;
+                case 4: return 1.80 + Math.random() * 0.60;
+                case 5: return 3.00 + Math.random() * 2.00;
+                default: return 1.0;
+            }
+        }
+
+        function updatePool() {
+            document.getElementById('value').textContent = pool;
+            const box = document.getElementById('pool');
+            if (pool < 0) box.classList.add('negative');
+            else box.classList.remove('negative');
+        }
+
+        function gameOver(message, isDeath = true) {
+            if (gameEnded) return;
+            gameEnded = true;
+            const msg = document.getElementById('message');
+            msg.innerHTML = message;
+            if (isDeath) msg.classList.add('death');
+            msg.classList.add('show');
+        }
+
+        function checkEnd() {
+            if (gameEnded) return;
+            if (activeNumbers.size === 0) {
+                // Victoire : afficher Pool initial et Score final
+                const finalScore = pool; // Ce qui reste après les malus
+                gameOver(`Pool ${initialPool}<br>Score ${finalScore}<br><br>Do you want a medal ?<br>Just reload`, false);
+            }
+        }
+
+        class FallingNumber {
+            constructor(value, xPercent, startY = -80) {
+                this.id = nextId++;
+                this.value = value;
+                this.active = true;
+
+                this.el = document.createElement('div');
+                this.el.className = 'falling-number';
+                this.el.textContent = value;
+                
+                const digits = String(value).length;
+                if (digits >= 6) {
+                    this.el.classList.add('big');
+                    this.el.style.left = '2%';
+                    this.el.style.transform = 'none';
+                } else {
+                    this.el.style.left = '50%';
+                    this.el.style.transform = 'translateX(-50%)';
+                }
+
+                let size = '18vh';
+                if (digits >= 8) size = '5.5vh';
+                else if (digits === 7) size = '7vh';
+                else if (digits === 6) size = '9vh';
+                else if (digits === 5) size = '12vh';
+                else if (digits === 4) size = '15vh';
+                else if (digits <= 3) size = '18vh';
+                
+                this.el.style.fontSize = `clamp(24px, ${size}, 22vw)`;
+                this.el.style.top = startY + 'px';
+                
+                const speedLevel = getSpeedLevel(value);
+                this.speed = getSpeedFromLevel(speedLevel);
+                
+                if (speedLevel === 5) {
+                    this.el.classList.add('fast');
+                }
+
+                document.body.appendChild(this.el);
+                this.y = startY;
+
+                this.onClick = this.onClick.bind(this);
+                this.el.addEventListener('click', this.onClick);
+                this.el.addEventListener('touchstart', (e) => {
+                    e.preventDefault();
+                    this.onClick();
+                }, { passive: false });
+
+                activeNumbers.set(this.id, this);
+                this.loop();
+            }
+
+            loop() {
+                if (!this.active || gameEnded) return;
+
+                this.y += this.speed;
+                this.el.style.top = this.y + 'px';
+
+                if (this.y > window.innerHeight) {
+                    this.onEscape();
+                    return;
+                }
+
+                requestAnimationFrame(() => this.loop());
+            }
+
+            onClick() {
+                if (!this.active || gameEnded) return;
+
+                if (isPrime(this.value)) {
+                    // MORT IMMÉDIATE : tu as touché le mauvais
+                    this.el.style.color = '#f00';
+                    this.el.style.textShadow = '0 0 60px #f00';
+                    gameOver('You touched the bad one.<br>Just reload', true);
+                    setTimeout(() => this.destroy(), 100);
+                } else {
+                    this.split();
+                }
+            }
+
+            split() {
+                const d = getRandomDivisor(this.value);
+                if (!d) return;
+                const other = this.value / d;
+
+                const isBig = this.el.classList.contains('big');
+                const x1 = isBig ? 2 : 35;
+                const x2 = isBig ? 45 : 65;
+
+                this.createParticles();
+                this.destroy();
+
+                new FallingNumber(d, x1, this.y + 20);
+
+                setTimeout(() => {
+                    if (!gameEnded) new FallingNumber(other, x2, -100);
+                }, 900);
+
+                setTimeout(checkEnd, 2500);
+            }
+
+            onEscape() {
+                if (!this.active) return;
+                if (!isPrime(this.value)) {
+                    pool -= this.value;
+                    updatePool();
+                }
+                this.destroy();
+                setTimeout(checkEnd, 400);
+            }
+
+            createParticles() {
+                const rect = this.el.getBoundingClientRect();
+                const cx = rect.left + rect.width / 2;
+                const cy = rect.top + rect.height / 2;
+
+                for (let i = 0; i < 16; i++) {
+                    const p = document.createElement('div');
+                    p.className = 'particle';
+                    p.style.left = cx + 'px';
+                    p.style.top = cy + 'px';
+                    document.body.appendChild(p);
+
+                    const angle = (Math.PI * 2 * i) / 16;
+                    const dist = 80 + Math.random() * 120;
+                    const tx = Math.cos(angle) * dist;
+                    const ty = Math.sin(angle) * dist;
+
+                    p.animate([
+                        { transform: 'translate(0,0) scale(1)', opacity: 1 },
+                        { transform: `translate(${tx}px, ${ty}px) scale(0)`, opacity: 0 }
+                    ], {
+                        duration: 800 + Math.random() * 400,
+                        easing: 'ease-out'
+                    }).onfinish = () => p.remove();
+                }
+            }
+
+            destroy() {
+                this.active = false;
+                this.el.removeEventListener('click', this.onClick);
+                this.el.remove();
+                activeNumbers.delete(this.id);
+            }
+        }
+
+        function init() {
+            const initial = generateComposite();
+            initialPool = initial; // Sauvegarde pour l'affichage final
+            pool = initial;
+            updatePool();
+            new FallingNumber(initial, 50, -80);
+        }
+
+        init();
+    </script>
+</body>
+</html>
